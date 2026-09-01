@@ -367,7 +367,7 @@ export const main = sdk.setupMain(async ({ effects }) => {
     ...commonConfig('/networkStore'),
     ...accountFor('coordinator'),
     mongo: {
-      connect: `mongodb://127.0.0.1:${mongoPort}/?directConnection=true`,
+      connect: `mongodb://127.0.0.1:${mongoPort}`,
       database: 'coordinator',
       log: 'log',
       spaces: 'spaces',
@@ -429,9 +429,13 @@ export const main = sdk.setupMain(async ({ effects }) => {
     ...commonConfig('/networkStore'),
     ...accountFor('consensusnode'),
     mongo: {
-      connect: `mongodb://127.0.0.1:${mongoPort}/?directConnection=true`,
+      // `w=majority` and `logCollection` (NOT `log`, which is what the
+      // coordinator uses) both come from upstream's consensusnode.yml. Getting
+      // the key wrong makes the daemon try to create collection "" and abort
+      // with `(InvalidNamespace) Invalid namespace specified 'consensus.'`.
+      connect: `mongodb://127.0.0.1:${mongoPort}/?w=majority`,
       database: 'consensus',
-      log: 'log',
+      logCollection: 'log',
     },
     drpc: drpcConfig,
     ...listenConfig(consensusPort),
@@ -504,7 +508,16 @@ export const main = sdk.setupMain(async ({ effects }) => {
           '--port',
           String(mongoPort),
           '--eval',
-          `try { rs.initiate({_id:'rs0',members:[{_id:0,host:'127.0.0.1:${mongoPort}'}]}) } catch (e) { rs.status().ok }`,
+          // Initiating is not enough: rs.initiate() returns as soon as the
+          // config is accepted, while the member needs another beat to elect
+          // itself PRIMARY. Returning early let the coordinator and consensus
+          // node start against a non-primary and die with
+          // `(NotWritablePrimary) not primary`. Block until it is writable.
+          `try { rs.initiate({_id:'rs0',members:[{_id:0,host:'127.0.0.1:${mongoPort}'}]}) } catch (e) { }
+           var waited = 0;
+           while (!db.hello().isWritablePrimary && waited < 60000) { sleep(250); waited += 250; }
+           if (!db.hello().isWritablePrimary) { print('replica set did not reach PRIMARY'); quit(1); }
+           print('PRIMARY after ' + waited + 'ms');`,
         ],
       },
       requires: ['mongo'],
@@ -512,6 +525,12 @@ export const main = sdk.setupMain(async ({ effects }) => {
     .addDaemon('redis', {
       subcontainer: redisSub,
       exec: {
+        // LC_ALL is pinned because StartOS exports a locale this image has no
+        // data for, and Redis treats that as fatal, not cosmetic: main() does
+        // `if (setlocale(LC_COLLATE,"") == NULL) { ...; return 1; }`. The only
+        // symptom is "Failed to configure LOCALE for invalid locale name."
+        // followed by exit 1 and an endless restart loop.
+        env: { LC_ALL: 'C', LANG: 'C' },
         command: [
           'redis-server',
           '--port',
