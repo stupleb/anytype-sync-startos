@@ -9,8 +9,13 @@ jobs:
   release:
     uses: Start9Labs/start-technologies/.github/workflows/release.yml@master
     with:
-      RELEASE_REGISTRY: ${{ vars.RELEASE_REGISTRY }}
-      S3_S9PKS_BASE_URL: ${{ vars.S3_S9PKS_BASE_URL }}
+      FREE_DISK_SPACE: true
+      # Deliberately left unset: this package publishes to GitHub Releases only,
+      # not to a Start9 registry. Every registry and S3 step in the reusable
+      # workflow is guarded on these, so empty values skip them and the
+      # "Create GitHub Release" step (which is unguarded) still runs.
+      RELEASE_REGISTRY: ''
+      S3_S9PKS_BASE_URL: ''
     secrets:
       DEV_KEY: ${{ secrets.DEV_KEY }}
       S3_ACCESS_KEY: ${{ secrets.S3_ACCESS_KEY }}

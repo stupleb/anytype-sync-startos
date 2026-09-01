@@ -21,4 +21,8 @@ jobs:
       # Ten upstream images per arch, and the packed s9pk runs to hundreds of
       # megabytes — a stock runner gets tight once the images are unpacked.
       FREE_DISK_SPACE: true
-    # No DEV_KEY — a PR build doesn't publish, so it doesn't need the signing key.
+    secrets:
+      # Optional for a build — without it the reusable workflow falls back to
+      # `start-cli init-key` and signs with a throwaway identity. Passing the
+      # real key keeps CI artifacts signed the same as local builds.
+      DEV_KEY: ${{ secrets.DEV_KEY }}
