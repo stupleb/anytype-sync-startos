@@ -75,6 +75,21 @@ export const main = sdk.setupMain(async ({ effects }) => {
     consensusnode: buildAddresses(consensusHosts, consensusPort),
   }
 
+  // Logged because the failure here is silent and expensive: if StartOS offers
+  // no hostnames yet, every list is empty, withAddresses leaves the generator's
+  // placeholders in place, and the package serves a client.yml that looks
+  // perfectly well-formed while pointing at nothing. Every health check would
+  // still be green. This is the one line that distinguishes that from success.
+  for (const [daemon, addrs] of Object.entries(addressesByDaemon)) {
+    if (!addrs.length) {
+      console.warn(
+        `${daemon}: no reachable address available yet — client.yml will not be usable until StartOS offers one`,
+      )
+    } else {
+      console.info(`${daemon} advertising: ${addrs.join(', ')}`)
+    }
+  }
+
   // -------------------------------------------------------------------------
   // Subcontainers
   // -------------------------------------------------------------------------
@@ -470,6 +485,9 @@ export const main = sdk.setupMain(async ({ effects }) => {
       exec: {
         command: [
           'mongod',
+          // Without this every health-check connection logs four INFO lines;
+          // that was ~2,000 of the 2,500 lines in the first install's export.
+          '--quiet',
           '--replSet',
           'rs0',
           '--port',
