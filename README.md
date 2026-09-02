@@ -163,7 +163,7 @@ These checks confirm a daemon is listening, not that a client can reach it. A gr
 3. **One sync node, fixed at install.** See Image and Container Runtime.
 4. **Redis cannot be swapped for Valkey.** The filenode requires the RedisBloom module.
 5. **A self-hosted network is a separate identity.** Spaces on an anytype.io account do not migrate; upstream advises exporting and re-importing.
-6. **Clients still contact anytype.io for push notifications** unless `ANYTYPE_PUSH_PEERID` and `ANYTYPE_PUSH_ADDRESS` are overridden on the client. This is outbound from the user's device and is not something this package can change.
+6. **Clients still contact anytype.io for push notifications** unless `ANYTYPE_PUSH_PEERID` and `ANYTYPE_PUSH_ADDRESS` are overridden on the client process. There is no in-app setting for this — a space's "Message notifications" control governs whether the user is notified, not which server delivers it. Outbound from the user's device, and nothing this package can change.
 7. **`netcheck` is not used as a health probe.** Upstream's tool checks only coordinator addresses by default, so a green result would not say anything about the other three daemons.
 
 ---

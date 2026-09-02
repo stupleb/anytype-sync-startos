@@ -53,4 +53,4 @@ A domain gives your server a name — it does not by itself make it reachable fr
 
 - **A self-hosted network is a separate identity.** Spaces in an anytype.io account do not move across. Export what you want to keep from the app, switch networks, then import it into your new vault.
 - **Raspberry Pi 4 and older boards cannot run this.** MongoDB needs a newer processor than they have. A Pi 5 or any x86 server is fine.
-- **Anytype's own push notification service is still used** by your phone unless you change that in the app. That is a client setting, not something this server controls.
+- **Push notifications still go through Anytype's servers.** Your phone contacts Anytype's push service regardless of this server, and there is no setting in the app that repoints it — only an environment variable on the client. The notification controls you *do* get in a space's settings decide whether you are notified, not who delivers it. Self-hosting does not remove this.
