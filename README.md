@@ -152,9 +152,13 @@ These checks confirm a daemon is listening, not that a client can reach it. A gr
 
 ## Backups and Restore
 
-`config`, `db`, `blobs` and `sync` are backed up. `cache` is excluded: Redis holds the filenode's blob index, which is derived from the bucket contents.
+All five volumes are backed up. StartOS stops the service for the duration, so each one is copied quiescent.
 
-**`config` is the critical volume.** It carries the network identity, and restoring it is what makes a restored server keep working with clients that were already paired — the peer IDs are unchanged, so no client needs a new `client.yml`. A restore that lost `config` but kept the data volumes would produce a server no existing client would talk to.
+**`cache` must be included, despite looking like a throwaway.** It holds the filenode's Redis blob index. The index entries are persisted into the S3 index bucket by `PersistKeys`, so it appears rebuildable from `blobs` — it is not. The lookup in `any-sync-filenode/index/loader.go:150-190` checks Redis, then gates the persistent-store fallback on a **bloom filter**: if `BFExists` returns false it returns "item not exists" and never reads the persistent index. That bloom filter is written only by `BFAdd` into Redis and is persisted nowhere (`bloomFilterKey` has three references in the repo — definition, check, write). An empty Redis therefore does not cost a warm cache; it makes every stored blob unreachable while the bytes sit intact in MinIO, so attachments vanish from every restored space.
+
+**`config` is the other critical volume.** It carries the network identity, and restoring it is what makes a restored server keep working with clients that were already paired — the peer IDs are unchanged, so no client needs a new `client.yml`. A restore that lost `config` but kept the data volumes would produce a server no existing client would talk to.
+
+Backups use rsync (`Backups.ofVolumes` delegates to `addSync`), not the `cp`-based dump helpers, so the 30-second copy timeout that affects `withPgDump`/`withMysqlDump` packages does not apply here. rsync's `--timeout=300` is an inactivity timeout, not a cap on total duration.
 
 ## Limitations and Differences
 
