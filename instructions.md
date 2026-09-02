@@ -10,7 +10,7 @@ Anytype keeps your notes on your own devices and works offline. This server is w
 
 ## What this gives you
 
-Your spaces sync between your devices through your server instead of Anytype's. Spaces are end-to-end encrypted either way, so this is not about hiding your notes — it removes the account, the storage quota, and the dependency on infrastructure you do not control.
+Your Channels — what Anytype used to call Spaces — sync between your devices through your server instead of Anytype's. They are end-to-end encrypted either way, so this is not about hiding your notes — it removes the account, the storage quota, and the dependency on infrastructure you do not control.
 
 The server exposes four connection points that your devices use — coordinator, sync node, file node and consensus node — plus a **Network Configuration** page where you download the file that points your app at them.
 
@@ -49,8 +49,29 @@ So the order matters: add the new address, let every device come online once whi
 
 A domain gives your server a name — it does not by itself make it reachable from outside your network. The four ports still need to reach your server, via forwarded ports on your router or a VPN.
 
+## Moving content from Anytype's network
+
+If you already use Anytype, your existing content does not follow you automatically. You move it a Channel at a time, using Anytype's own export and import. Nothing here touches your old vault — it stays exactly as it is on Anytype's network until you choose to delete it.
+
+**Do the exports first, while you are still logged into your existing vault on the Anytype network.** Once you switch networks you cannot reach that vault.
+
+1. Open the settings for a Channel you want to move and choose **Export Channel**.
+2. Pick **Any-Block**, not Markdown. Markdown is for reading elsewhere and loses your object types, properties and relations; Any-Block is Anytype's own format and is the only one that imports back cleanly.
+3. Turn on **Include files** so images and attachments come with it. **Include archived objects** if you want those too. Leave **Zip archive** on.
+4. Repeat for every Channel you want to keep. There is no whole-vault export in this format — it is one export per Channel.
+5. Now switch to your self-hosted network and create a new vault.
+6. In the new vault, create a Channel to receive the content, then go to **Import**, choose **Any-Block**, and select the archive you exported. Imported objects land in the Channel you selected.
+
+What does not come across, and cannot:
+
+- **Your identity.** The new vault has a new login key. Save it — Anytype cannot recover it for you.
+- **Sharing and collaborators.** A Channel's members live on the network it was created on, so anyone you shared with needs re-inviting on the new one.
+- **Anything tied to Anytype's network**, such as a purchased name.
+
+Take your time over step 4. It is much easier to export one Channel too many now than to switch networks back and forth later.
+
 ## Important limitations
 
-- **A self-hosted network is a separate identity, and you must create a _new_ vault on it.** Your existing anytype.io vault belongs to Anytype's network and cannot be recovered onto yours. Entering its login key after switching to Self-hosted does not fail with an error — the app sits on "Welcome back" with a spinner indefinitely, because it is looking for an account that does not exist on your server. Choose to create a new vault instead. To bring content across: switch back to the Anytype network, export what you want from the old vault, switch to Self-hosted, then import into the new one.
+- **A self-hosted network is a separate identity, and you must create a _new_ vault on it.** Your existing anytype.io vault belongs to Anytype's network and cannot be recovered onto yours. Entering its login key after switching to Self-hosted does not fail with an error — the app sits on "Welcome back" with a spinner indefinitely, because it is looking for an account that does not exist on your server. Create a new vault instead, and move your content across with the steps below.
 - **Raspberry Pi 4 and older boards cannot run this.** MongoDB needs a newer processor than they have. A Pi 5 or any x86 server is fine.
 - **Push notifications still go through Anytype's servers.** Your phone contacts Anytype's push service regardless of this server, and there is no setting in the app that repoints it — only an environment variable on the client. The notification controls you *do* get in a space's settings decide whether you are notified, not who delivers it. Self-hosting does not remove this.
