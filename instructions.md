@@ -41,7 +41,11 @@ Once enabled, nothing else is needed:
 - **Devices already set up pick it up on their own**, within about ten minutes. They re-fetch the node list from your server periodically, so you do not need to re-download `client.yml` or re-import anything.
 - **New devices** get it in a freshly downloaded `client.yml`.
 
-Adding addresses is always safe. Removing them is not: a device that can no longer reach *any* address it knows can never be told about the new ones. Leave the old address enabled until every device has been online at least once.
+You do not need to re-download `client.yml` for this. Your devices store the node list they fetch from your server and keep it across restarts, so a new address replaces the old one on its own.
+
+The exception is a device that cannot reach your server on any address it already has — a phone that has only ever been on mobile data, holding a `client.yml` with only your home network's address, can never be told about the new one. That device needs a freshly downloaded `client.yml`.
+
+So the order matters: add the new address, let every device come online once while the old one still works, and only then remove anything.
 
 A domain gives your server a name — it does not by itself make it reachable from outside your network. The four ports still need to reach your server, via forwarded ports on your router or a VPN.
 
