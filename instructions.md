@@ -32,7 +32,18 @@ Your devices must be able to reach the four sync connection points. On the same 
 
 **Tor will not work for this.** The Anytype apps cannot connect through Tor, so an onion address is not an option no matter how it is configured.
 
-If you add a domain or your server's address changes, your devices pick the new address up automatically — the server republishes it. Give it a few minutes.
+### Adding a domain
+
+Addresses are enabled **per interface**, and your devices talk to all four sync connection points directly. So after adding a domain, enable it on **all four** — Coordinator, Sync Node, File Node and Consensus Node. Enabling it on only some produces a client that connects and syncs text but silently fails on images, with every health check still green.
+
+Once enabled, nothing else is needed:
+
+- **Devices already set up pick it up on their own**, within about ten minutes. They re-fetch the node list from your server periodically, so you do not need to re-download `client.yml` or re-import anything.
+- **New devices** get it in a freshly downloaded `client.yml`.
+
+Adding addresses is always safe. Removing them is not: a device that can no longer reach *any* address it knows can never be told about the new ones. Leave the old address enabled until every device has been online at least once.
+
+A domain gives your server a name — it does not by itself make it reachable from outside your network. The four ports still need to reach your server, via forwarded ports on your router or a VPN.
 
 ## Important limitations
 

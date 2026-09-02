@@ -90,6 +90,28 @@ export const main = sdk.setupMain(async ({ effects }) => {
     }
   }
 
+  // Addresses are enabled per interface, and clients dial all four daemons
+  // directly. So enabling a domain on the coordinator but not the file node
+  // yields a client that finds the network, syncs documents, and then silently
+  // fails to fetch images — with every health check green, because each daemon
+  // really is listening. Name the mismatch rather than let it be debugged from
+  // symptoms.
+  const hostSets = Object.entries({
+    coordinator: coordHosts,
+    'sync-node': nodeHosts,
+    filenode: fileHosts,
+    consensusnode: consensusHosts,
+  })
+  const union = [...new Set(hostSets.flatMap(([, hosts]) => hosts))]
+  for (const [daemon, hosts] of hostSets) {
+    const missing = union.filter((h) => !hosts.includes(h))
+    if (missing.length) {
+      console.warn(
+        `${daemon}: ${missing.join(', ')} is enabled on another interface but not this one — clients reaching the network by that address will fail against ${daemon}. Enable it on all four sync interfaces.`,
+      )
+    }
+  }
+
   // -------------------------------------------------------------------------
   // Subcontainers
   // -------------------------------------------------------------------------
