@@ -758,9 +758,10 @@ function renderConfigPage(networkId: string): string {
 
 <ol>
   <li>Download the file above onto the device running Anytype.</li>
-  <li>In the Anytype app, log out of your current vault.</li>
-  <li>Open the settings gear, choose <strong>Self-hosted</strong> under Networks.</li>
-  <li>Upload <code>client.yml</code>, then create or log into a vault.</li>
+  <li><strong>Save your Anytype login key first</strong> &mdash; it cannot be recovered, and the next step signs you out.</li>
+  <li>In Anytype, open settings from the sidebar and scroll down to <strong>Log out</strong>. It appears on your account's settings, not on a space's.</li>
+  <li>On the login screen, click the <strong>gear icon at the top right</strong>, next to the language selector. The network picker is only here, not in the app's normal settings.</li>
+  <li>Choose <strong>Self-hosted</strong>, upload <code>client.yml</code>, then create or log into a vault.</li>
 </ol>
 
 <p>Desktop, iOS and Android all support self-hosted networks. A self-hosted

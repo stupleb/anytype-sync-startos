@@ -18,11 +18,13 @@ The server exposes four connection points that your devices use — coordinator,
 
 1. Wait for every health check to go green. First start takes a few minutes: the server generates its network identity and initialises its databases.
 2. Open the **Network Configuration** interface and download `client.yml`. Save it onto the device you want to connect.
-3. In the Anytype app, log out of your current vault.
-4. Open the settings gear and choose **Self-hosted** under Networks.
-5. Upload `client.yml`, then create a new vault or log into one that already exists on this network.
+3. **Save your Anytype login key before going any further.** Anytype cannot recover it, and the next step signs you out.
+4. In Anytype, open settings from the sidebar and scroll to the bottom for **Log out**. It only appears on your account's settings — if you opened settings from inside a space you are looking at that space's settings and there is no Log out there.
+5. You are now on the login screen. The network picker lives **only here**, not in the app's normal settings: click the **gear icon in the top-right**, beside the language selector.
+6. Choose **Self-hosted** ("Back up to your self-hosted network"), then upload `client.yml` under **Self-hosted Configuration**.
+7. Create a new vault, or log into one that already exists on this network.
 
-Repeat steps 2–5 on each device. Desktop, iOS and Android all support self-hosted networks.
+Repeat on each device. Desktop, iOS and Android all support self-hosted networks.
 
 ## Reaching your server
 
