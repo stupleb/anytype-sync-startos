@@ -49,7 +49,7 @@ Nine upstream images, all unmodified, all `x86_64` and `aarch64`. There is no cu
 | `tools-sub`       | `ghcr.io/anyproto/any-sync-tools` | Runs `anyconf` to mint the network identity             |
 | `caddy-sub`       | `caddy`                           | Serves `client.yml` over the config interface           |
 
-Attach with `start-cli package attach anytype -n <subcontainer-name>`.
+Attach with `start-cli package attach anytype-sync -n <subcontainer-name>`.
 
 **Upstream runs three sync nodes; this package runs one.** That count is not a protocol requirement — `ReplicationFactor` is a compile-time constant of 3, and the consistent-hash ring returns the replication factor *or the total member count, whichever is smaller*. anyproto's own network generator creates a single sync node on its default path; three appear only in its `--auto` mode. On a single-box deployment three nodes would triple the storage and the port count to replicate data onto the same disk.
 
@@ -175,7 +175,7 @@ Backups use rsync (`Backups.ofVolumes` delegates to `addSync`), not the `cp`-bas
 ## Quick Reference for AI Consumers
 
 ```yaml
-package_id: anytype
+package_id: anytype-sync
 image: ghcr.io/anyproto/any-sync-coordinator # plus any-sync-node, any-sync-filenode, any-sync-consensusnode, any-sync-tools, mongo, redis/redis-stack-server, minio/minio, minio/mc, caddy
 architectures: [x86_64, aarch64]
 subcontainers:

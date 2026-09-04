@@ -14,10 +14,10 @@ export const CONSENSUSNODE_VERSION = 'v0.13.0'
 export const TOOLS_VERSION = 'v0.7.0'
 
 export const manifest = setupManifest({
-  id: 'anytype',
+  id: 'anytype-sync',
   title: 'Anytype Sync Server',
   license: 'MIT',
-  packageRepo: 'https://github.com/stupleb/anytype-startos',
+  packageRepo: 'https://github.com/stupleb/anytype-sync-startos',
   upstreamRepo: 'https://github.com/anyproto/any-sync',
   marketingUrl: 'https://anytype.io',
   donationUrl: null,
