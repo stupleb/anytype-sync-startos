@@ -3,7 +3,8 @@ export const short = {
     'Sync backend for the Anytype apps, keeping channels current across your devices.',
   es_ES:
     'Servidor de sincronización para las apps Anytype, mantiene tus canales al día.',
-  de_DE: 'Sync-Server für die Anytype-Apps, hält deine Channels überall aktuell.',
+  de_DE:
+    'Sync-Server für die Anytype-Apps, hält deine Channels überall aktuell.',
   pl_PL:
     'Serwer synchronizacji dla aplikacji Anytype, utrzymuje kanały aktualne.',
   fr_FR:

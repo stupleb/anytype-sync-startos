@@ -40,10 +40,6 @@ export const configPort = 8080
 // Internal to the package — never bound to a host interface.
 export const mongoPort = 27017
 export const redisPort = 6379
-export const minioPort = 9000
-export const minioConsolePort = 9001
-export const minioBucket = 'anytype'
-export const minioAccessKey = 'anytype'
 
 // ---------------------------------------------------------------------------
 // Paths
@@ -93,6 +89,9 @@ export const NETWORK_SIGNING_KEY_INDICES = [1, 3]
 
 export type DaemonAddresses = Record<string, string[]>
 
+// `port` is the one StartOS assigned, which is not the bound port when that was already taken.
+export type BoundHost = { hostname: string; port: number }
+
 /**
  * Build the advertised address list for one daemon.
  *
@@ -103,10 +102,13 @@ export type DaemonAddresses = Record<string, string[]>
  * IPv6 literals are bracketed — `net.SplitHostPort` on the client side requires
  * it, and an unbracketed v6 address would be parsed as host + port.
  */
-export function buildAddresses(hostnames: string[], port: number): string[] {
+export function buildAddresses(hosts: BoundHost[]): string[] {
   const out: string[] = []
-  for (const raw of hostnames) {
-    const host = raw.includes(':') && !raw.startsWith('[') ? `[${raw}]` : raw
+  for (const { hostname, port } of hosts) {
+    const host =
+      hostname.includes(':') && !hostname.startsWith('[')
+        ? `[${hostname}]`
+        : hostname
     const hostPort = `${host}:${port}`
     if (!out.includes(hostPort)) out.push(hostPort)
     const quic = `quic://${hostPort}`
@@ -116,7 +118,7 @@ export function buildAddresses(hostnames: string[], port: number): string[] {
 }
 
 /**
- * Every hostname StartOS currently offers for a binding, deduped.
+ * Every address StartOS currently offers for a binding.
  *
  * `nonLocal` drops localhost and IPv6 link-local, which are useless to a client
  * on another device. Everything else is kept deliberately: a LAN IP, a `.local`
@@ -128,14 +130,16 @@ export async function readBindingHostnames(
   hostId: string,
   port: number,
   interfaceId: string,
-): Promise<string[]> {
+): Promise<BoundHost[]> {
   const result = await sdk.host
-    .getOwn(effects, hostId, (host) => {
-      const info = host?.bindings[port]?.interfaces[interfaceId]?.addressInfo
-      return [
-        ...new Set(info?.nonLocal.hostnames.map((h) => h.hostname) ?? []),
-      ]
-    })
+    .getOwn(effects, hostId, (host) =>
+      (
+        host?.bindings[port]?.interfaces[interfaceId]?.addressInfo?.nonLocal
+          .hostnames ?? []
+      ).flatMap((h) =>
+        h.port === null ? [] : [{ hostname: h.hostname, port: h.port }],
+      ),
+    )
     .const()
   return result ?? []
 }

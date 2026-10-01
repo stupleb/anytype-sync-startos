@@ -1,5 +1,14 @@
-import { utils } from '@start9labs/start-sdk'
 import { mkdir, readFile, writeFile } from 'fs/promises'
+import {
+  garageCommand,
+  garageReady,
+  garageSub,
+  prepareGarage,
+  s3AccessKey,
+  s3Bucket,
+  s3Port,
+  s3Region,
+} from './garage'
 import { i18n } from './i18n'
 import { sdk } from './sdk'
 import {
@@ -19,10 +28,6 @@ import {
   filenodePort,
   GENERATED_SUBPATH,
   listenConfig,
-  minioAccessKey,
-  minioBucket,
-  minioConsolePort,
-  minioPort,
   mongoPort,
   NETWORK_SIGNING_KEY_INDICES,
   NODE_ORDER,
@@ -58,8 +63,18 @@ export const main = sdk.setupMain(async ({ effects }) => {
       coordinatorPort,
       coordinatorInterfaceId,
     ),
-    readBindingHostnames(effects, syncHostId, syncNodePort, syncNodeInterfaceId),
-    readBindingHostnames(effects, syncHostId, filenodePort, filenodeInterfaceId),
+    readBindingHostnames(
+      effects,
+      syncHostId,
+      syncNodePort,
+      syncNodeInterfaceId,
+    ),
+    readBindingHostnames(
+      effects,
+      syncHostId,
+      filenodePort,
+      filenodeInterfaceId,
+    ),
     readBindingHostnames(
       effects,
       syncHostId,
@@ -69,10 +84,10 @@ export const main = sdk.setupMain(async ({ effects }) => {
   ])
 
   const addressesByDaemon = {
-    coordinator: buildAddresses(coordHosts, coordinatorPort),
-    'sync-node': buildAddresses(nodeHosts, syncNodePort),
-    filenode: buildAddresses(fileHosts, filenodePort),
-    consensusnode: buildAddresses(consensusHosts, consensusPort),
+    coordinator: buildAddresses(coordHosts),
+    'sync-node': buildAddresses(nodeHosts),
+    filenode: buildAddresses(fileHosts),
+    consensusnode: buildAddresses(consensusHosts),
   }
 
   // Logged because the failure here is silent and expensive: if StartOS offers
@@ -101,7 +116,7 @@ export const main = sdk.setupMain(async ({ effects }) => {
     'sync-node': nodeHosts,
     filenode: fileHosts,
     consensusnode: consensusHosts,
-  })
+  }).map(([daemon, hosts]) => [daemon, hosts.map((h) => h.hostname)] as const)
   const union = [...new Set(hostSets.flatMap(([, hosts]) => hosts))]
   for (const [daemon, hosts] of hostSets) {
     const missing = union.filter((h) => !hosts.includes(h))
@@ -118,13 +133,12 @@ export const main = sdk.setupMain(async ({ effects }) => {
   const toolsSub = await sdk.SubContainer.of(
     effects,
     { imageId: 'any-sync-tools' },
-    sdk.Mounts.of()
-      .mountVolume({
-        volumeId: 'config',
-        subpath: null,
-        mountpoint: '/config',
-        readonly: false,
-      }),
+    sdk.Mounts.of().mountVolume({
+      volumeId: 'config',
+      subpath: null,
+      mountpoint: '/config',
+      readonly: false,
+    }),
     'tools-sub',
   )
 
@@ -152,24 +166,7 @@ export const main = sdk.setupMain(async ({ effects }) => {
     'redis-sub',
   )
 
-  const minioSub = await sdk.SubContainer.of(
-    effects,
-    { imageId: 'minio' },
-    sdk.Mounts.of().mountVolume({
-      volumeId: 'blobs',
-      subpath: null,
-      mountpoint: '/data',
-      readonly: false,
-    }),
-    'minio-sub',
-  )
-
-  const mcSub = await sdk.SubContainer.of(
-    effects,
-    { imageId: 'mc' },
-    sdk.Mounts.of(),
-    'mc-sub',
-  )
+  const garage = garageSub(effects, 'garage-sub')
 
   const coordinatorSub = await sdk.SubContainer.of(
     effects,
@@ -359,13 +356,7 @@ export const main = sdk.setupMain(async ({ effects }) => {
     }
   }
 
-  // MinIO's root credentials never leave the package, but they still should not
-  // be a constant. Generated once alongside the network identity.
-  let minioSecret = (await readIfPresent(`${genDir}/.minioSecret`))?.trim() || ''
-  if (!minioSecret) {
-    minioSecret = utils.getDefaultString({ charset: 'a-z,A-Z,0-9', len: 32 })
-    await writeFile(`${genDir}/.minioSecret`, minioSecret)
-  }
+  const garageEnv = await prepareGarage()
 
   // -------------------------------------------------------------------------
   // Per-daemon configuration, rewritten on every start
@@ -443,12 +434,12 @@ export const main = sdk.setupMain(async ({ effects }) => {
     ...commonConfig('/networkStore'),
     ...accountFor('filenode'),
     s3Store: {
-      bucket: minioBucket,
-      indexBucket: minioBucket,
+      bucket: s3Bucket,
+      indexBucket: s3Bucket,
       maxThreads: 16,
       profile: 'default',
-      region: 'us-east-1',
-      endpoint: `http://127.0.0.1:${minioPort}`,
+      region: s3Region,
+      endpoint: `http://127.0.0.1:${s3Port}`,
       forcePathStyle: true,
     },
     redis: {
@@ -489,260 +480,229 @@ export const main = sdk.setupMain(async ({ effects }) => {
   await mkdir(awsDir, { recursive: true })
   await writeFile(
     `${awsDir}/credentials`,
-    `[default]\naws_access_key_id = ${minioAccessKey}\naws_secret_access_key = ${minioSecret}\n`,
+    `[default]\naws_access_key_id = ${s3AccessKey}\naws_secret_access_key = ${garageEnv.GARAGE_DEFAULT_SECRET_KEY}\n`,
   )
 
   // client.yml — the whole point of the package, served over the config UI.
   const publicDir = `${toolsRoot}/config/${PUBLIC_SUBPATH}`
   await mkdir(publicDir, { recursive: true })
   await writeFile(`${publicDir}/client.yml`, toYaml(network))
-  await writeFile(`${publicDir}/index.html`, renderConfigPage(network.networkId))
+  await writeFile(
+    `${publicDir}/index.html`,
+    renderConfigPage(network.networkId),
+  )
 
   // -------------------------------------------------------------------------
   // Daemons
   // -------------------------------------------------------------------------
-  return sdk.Daemons.of(effects)
-    .addDaemon('mongo', {
-      subcontainer: mongoSub,
-      exec: {
-        command: [
-          'mongod',
-          // Without this every health-check connection logs four INFO lines;
-          // that was ~2,000 of the 2,500 lines in the first install's export.
-          '--quiet',
-          '--replSet',
-          'rs0',
-          '--port',
-          String(mongoPort),
-          '--bind_ip',
-          '127.0.0.1',
-        ],
-      },
-      ready: {
-        display: null,
-        fn: async () => {
-          const res = await mongoSub.exec([
+  return (
+    sdk.Daemons.of(effects)
+      .addDaemon('mongo', {
+        subcontainer: mongoSub,
+        exec: {
+          command: [
+            'mongod',
+            // Without this every health-check connection logs four INFO lines;
+            // that was ~2,000 of the 2,500 lines in the first install's export.
+            '--quiet',
+            '--replSet',
+            'rs0',
+            '--port',
+            String(mongoPort),
+            '--bind_ip',
+            '127.0.0.1',
+          ],
+        },
+        ready: {
+          display: null,
+          fn: async () => {
+            const res = await mongoSub.exec([
+              'mongosh',
+              '--quiet',
+              '--port',
+              String(mongoPort),
+              '--eval',
+              'db.adminCommand({ping:1}).ok',
+            ])
+            return res.stdout.toString().trim() === '1'
+              ? { result: 'success', message: null }
+              : { result: 'failure', message: null }
+          },
+        },
+        requires: [],
+      })
+      // A replica set is not optional: the coordinator runs multi-document
+      // transactions and both it and the consensus node open change streams,
+      // none of which exist on a standalone mongod. One member is enough.
+      .addOneshot('mongo-replset', {
+        subcontainer: mongoSub,
+        exec: {
+          command: [
             'mongosh',
             '--quiet',
             '--port',
             String(mongoPort),
             '--eval',
-            'db.adminCommand({ping:1}).ok',
-          ])
-          return res.stdout.toString().trim() === '1'
-            ? { result: 'success', message: null }
-            : { result: 'failure', message: null }
-        },
-      },
-      requires: [],
-    })
-    // A replica set is not optional: the coordinator runs multi-document
-    // transactions and both it and the consensus node open change streams,
-    // none of which exist on a standalone mongod. One member is enough.
-    .addOneshot('mongo-replset', {
-      subcontainer: mongoSub,
-      exec: {
-        command: [
-          'mongosh',
-          '--quiet',
-          '--port',
-          String(mongoPort),
-          '--eval',
-          // Initiating is not enough: rs.initiate() returns as soon as the
-          // config is accepted, while the member needs another beat to elect
-          // itself PRIMARY. Returning early let the coordinator and consensus
-          // node start against a non-primary and die with
-          // `(NotWritablePrimary) not primary`. Block until it is writable.
-          `try { rs.initiate({_id:'rs0',members:[{_id:0,host:'127.0.0.1:${mongoPort}'}]}) } catch (e) { }
+            // Initiating is not enough: rs.initiate() returns as soon as the
+            // config is accepted, while the member needs another beat to elect
+            // itself PRIMARY. Returning early let the coordinator and consensus
+            // node start against a non-primary and die with
+            // `(NotWritablePrimary) not primary`. Block until it is writable.
+            `try { rs.initiate({_id:'rs0',members:[{_id:0,host:'127.0.0.1:${mongoPort}'}]}) } catch (e) { }
            var waited = 0;
            while (!db.hello().isWritablePrimary && waited < 60000) { sleep(250); waited += 250; }
            if (!db.hello().isWritablePrimary) { print('replica set did not reach PRIMARY'); quit(1); }
            print('PRIMARY after ' + waited + 'ms');`,
-        ],
-      },
-      requires: ['mongo'],
-    })
-    .addDaemon('redis', {
-      subcontainer: redisSub,
-      exec: {
-        // LC_ALL is pinned because StartOS exports a locale this image has no
-        // data for, and Redis treats that as fatal, not cosmetic: main() does
-        // `if (setlocale(LC_COLLATE,"") == NULL) { ...; return 1; }`. The only
-        // symptom is "Failed to configure LOCALE for invalid locale name."
-        // followed by exit 1 and an endless restart loop.
-        env: { LC_ALL: 'C', LANG: 'C' },
-        command: [
-          'redis-server',
-          '--port',
-          String(redisPort),
-          '--dir',
-          '/data/',
-          '--appendonly',
-          'yes',
-          '--maxmemory',
-          '256mb',
-          '--maxmemory-policy',
-          'noeviction',
-          '--loadmodule',
-          '/opt/redis-stack/lib/redisbloom.so',
-        ],
-      },
-      ready: {
-        display: null,
-        fn: async () => {
-          // BF.ADD, not PING: the filenode probes the bloom module at startup
-          // and aborts without it, so a plain PING would report ready on a
-          // Redis that cannot actually serve this package.
-          const res = await redisSub.exec([
-            'redis-cli',
-            '-p',
+          ],
+        },
+        requires: ['mongo'],
+      })
+      .addDaemon('redis', {
+        subcontainer: redisSub,
+        exec: {
+          // LC_ALL is pinned because StartOS exports a locale this image has no
+          // data for, and Redis treats that as fatal, not cosmetic: main() does
+          // `if (setlocale(LC_COLLATE,"") == NULL) { ...; return 1; }`. The only
+          // symptom is "Failed to configure LOCALE for invalid locale name."
+          // followed by exit 1 and an endless restart loop.
+          env: { LC_ALL: 'C', LANG: 'C' },
+          command: [
+            'redis-server',
+            '--port',
             String(redisPort),
-            'BF.ADD',
-            '_startos_probe',
-            '1',
-          ])
-          return res.exitCode === 0
-            ? { result: 'success', message: null }
-            : { result: 'failure', message: res.stderr.toString().trim() }
+            '--dir',
+            '/data/',
+            '--appendonly',
+            'yes',
+            '--maxmemory',
+            '256mb',
+            '--maxmemory-policy',
+            'noeviction',
+            '--loadmodule',
+            '/opt/redis-stack/lib/redisbloom.so',
+          ],
         },
-      },
-      requires: [],
-    })
-    .addDaemon('minio', {
-      subcontainer: minioSub,
-      exec: {
-        command: [
-          'minio',
-          'server',
-          '/data',
-          '--address',
-          `127.0.0.1:${minioPort}`,
-          // Pinned rather than left to MinIO's random choice: subcontainers
-          // share one network namespace, so an arbitrary console port could
-          // land on something else in this package.
-          '--console-address',
-          `127.0.0.1:${minioConsolePort}`,
-        ],
-        env: {
-          MINIO_ROOT_USER: minioAccessKey,
-          MINIO_ROOT_PASSWORD: minioSecret,
+        ready: {
+          display: null,
+          fn: async () => {
+            // BF.ADD, not PING: the filenode probes the bloom module at startup
+            // and aborts without it, so a plain PING would report ready on a
+            // Redis that cannot actually serve this package.
+            const res = await redisSub.exec([
+              'redis-cli',
+              '-p',
+              String(redisPort),
+              'BF.ADD',
+              '_startos_probe',
+              '1',
+            ])
+            return res.exitCode === 0
+              ? { result: 'success', message: null }
+              : { result: 'failure', message: res.stderr.toString().trim() }
+          },
         },
-      },
-      ready: {
-        display: null,
-        fn: () =>
-          sdk.healthCheck.checkPortListening(effects, minioPort, {
-            successMessage: '',
-            errorMessage: '',
-          }),
-      },
-      requires: [],
-    })
-    // The filenode never creates its bucket — it just fails to store anything.
-    .addOneshot('create-bucket', {
-      subcontainer: mcSub,
-      exec: {
-        command: [
-          'sh',
-          '-c',
-          `mc alias set minio http://127.0.0.1:${minioPort} ${minioAccessKey} ${minioSecret} && mc mb --ignore-existing minio/${minioBucket}`,
-        ],
-      },
-      requires: ['minio'],
-    })
-    // Publishes the node topology into Mongo. Clients refresh their node list
-    // from here, so this must re-run whenever the advertised addresses change —
-    // which it does, because main re-runs on any address change.
-    .addOneshot('publish-topology', {
-      subcontainer: coordinatorSub,
-      exec: {
-        command: [
-          '/bin/any-sync-confapply',
-          '-c',
-          '/etc/any-sync-coordinator/config.yml',
-          '-n',
-          '/etc/any-sync-coordinator/network.yml',
-          '-e',
-        ],
-      },
-      requires: ['mongo-replset'],
-    })
-    .addDaemon('coordinator', {
-      subcontainer: coordinatorSub,
-      exec: { command: sdk.useEntrypoint() },
-      ready: {
-        display: i18n('Coordinator'),
-        fn: () =>
-          sdk.healthCheck.checkPortListening(effects, coordinatorPort, {
-            successMessage: i18n('Accepting connections'),
-            errorMessage: i18n('Not accepting connections yet'),
-          }),
-      },
-      requires: ['publish-topology'],
-    })
-    .addDaemon('consensusnode', {
-      subcontainer: consensusSub,
-      exec: { command: sdk.useEntrypoint() },
-      ready: {
-        display: i18n('Consensus Node'),
-        fn: () =>
-          sdk.healthCheck.checkPortListening(effects, consensusPort, {
-            successMessage: i18n('Accepting connections'),
-            errorMessage: i18n('Not accepting connections yet'),
-          }),
-      },
-      requires: ['mongo-replset', 'coordinator'],
-    })
-    .addDaemon('sync-node', {
-      subcontainer: syncNodeSub,
-      exec: { command: sdk.useEntrypoint() },
-      ready: {
-        display: i18n('Sync Node'),
-        fn: () =>
-          sdk.healthCheck.checkPortListening(effects, syncNodePort, {
-            successMessage: i18n('Accepting connections'),
-            errorMessage: i18n('Not accepting connections yet'),
-          }),
-      },
-      requires: ['coordinator'],
-    })
-    .addDaemon('filenode', {
-      subcontainer: filenodeSub,
-      exec: { command: sdk.useEntrypoint() },
-      ready: {
-        display: i18n('File Node'),
-        fn: () =>
-          sdk.healthCheck.checkPortListening(effects, filenodePort, {
-            successMessage: i18n('Accepting connections'),
-            errorMessage: i18n('Not accepting connections yet'),
-          }),
-      },
-      requires: ['redis', 'create-bucket', 'coordinator'],
-    })
-    .addDaemon('config-ui', {
-      subcontainer: caddySub,
-      exec: {
-        command: [
-          'caddy',
-          'file-server',
-          '--root',
-          '/srv',
-          '--listen',
-          `:${configPort}`,
-        ],
-      },
-      ready: {
-        display: i18n('Network Configuration'),
-        fn: () =>
-          sdk.healthCheck.checkPortListening(effects, configPort, {
-            successMessage: i18n(
-              'The network configuration is ready to download',
-            ),
-            errorMessage: i18n('The network configuration is not ready'),
-          }),
-      },
-      requires: [],
-    })
+        requires: [],
+      })
+      .addDaemon('garage', {
+        subcontainer: garage,
+        exec: { command: garageCommand, env: garageEnv },
+        ready: garageReady(effects),
+        requires: [],
+      })
+      // Publishes the node topology into Mongo. Clients refresh their node list
+      // from here, so this must re-run whenever the advertised addresses change —
+      // which it does, because main re-runs on any address change.
+      .addOneshot('publish-topology', {
+        subcontainer: coordinatorSub,
+        exec: {
+          command: [
+            '/bin/any-sync-confapply',
+            '-c',
+            '/etc/any-sync-coordinator/config.yml',
+            '-n',
+            '/etc/any-sync-coordinator/network.yml',
+            '-e',
+          ],
+        },
+        requires: ['mongo-replset'],
+      })
+      .addDaemon('coordinator', {
+        subcontainer: coordinatorSub,
+        exec: { command: sdk.useEntrypoint() },
+        ready: {
+          display: i18n('Coordinator'),
+          fn: () =>
+            sdk.healthCheck.checkPortListening(effects, coordinatorPort, {
+              successMessage: i18n('Accepting connections'),
+              errorMessage: i18n('Not accepting connections yet'),
+            }),
+        },
+        requires: ['publish-topology'],
+      })
+      .addDaemon('consensusnode', {
+        subcontainer: consensusSub,
+        exec: { command: sdk.useEntrypoint() },
+        ready: {
+          display: i18n('Consensus Node'),
+          fn: () =>
+            sdk.healthCheck.checkPortListening(effects, consensusPort, {
+              successMessage: i18n('Accepting connections'),
+              errorMessage: i18n('Not accepting connections yet'),
+            }),
+        },
+        requires: ['mongo-replset', 'coordinator'],
+      })
+      .addDaemon('sync-node', {
+        subcontainer: syncNodeSub,
+        exec: { command: sdk.useEntrypoint() },
+        ready: {
+          display: i18n('Sync Node'),
+          fn: () =>
+            sdk.healthCheck.checkPortListening(effects, syncNodePort, {
+              successMessage: i18n('Accepting connections'),
+              errorMessage: i18n('Not accepting connections yet'),
+            }),
+        },
+        requires: ['coordinator'],
+      })
+      .addDaemon('filenode', {
+        subcontainer: filenodeSub,
+        exec: { command: sdk.useEntrypoint() },
+        ready: {
+          display: i18n('File Node'),
+          fn: () =>
+            sdk.healthCheck.checkPortListening(effects, filenodePort, {
+              successMessage: i18n('Accepting connections'),
+              errorMessage: i18n('Not accepting connections yet'),
+            }),
+        },
+        requires: ['redis', 'garage', 'coordinator'],
+      })
+      .addDaemon('config-ui', {
+        subcontainer: caddySub,
+        exec: {
+          command: [
+            'caddy',
+            'file-server',
+            '--root',
+            '/srv',
+            '--listen',
+            `:${configPort}`,
+          ],
+        },
+        ready: {
+          display: i18n('Network Configuration'),
+          fn: () =>
+            sdk.healthCheck.checkPortListening(effects, configPort, {
+              successMessage: i18n(
+                'The network configuration is ready to download',
+              ),
+              errorMessage: i18n('The network configuration is not ready'),
+            }),
+        },
+        requires: [],
+      })
+  )
 })
 
 /**

@@ -46,3 +46,6 @@ verified, tried, and decided belongs in the commit message and the PR body.
   See `README.md` § Address advertisement.
 - **Don't swap Redis for Valkey** and don't drop the `--loadmodule` flag: the
   filenode probes `BF.ADD` at startup and aborts without RedisBloom.
+- **Don't drop the `blobs` volume or the `minio-legacy` and `rclone` images**
+  because nothing mounts them in `main.ts`: an install updating from a MinIO
+  release reaches its files only through them.

@@ -34,7 +34,7 @@ There is no application UI here. The package's only web interface exists to hand
 
 ## Image and Container Runtime
 
-Nine upstream images, all unmodified, all `x86_64` and `aarch64`. There is no custom Dockerfile — every daemon runs its image's default entrypoint, and configuration is supplied entirely through generated YAML on the `config` volume.
+Eleven upstream images, all unmodified, all `x86_64` and `aarch64`. There is no custom Dockerfile — the four any-sync daemons run their image's default entrypoint, and configuration is supplied entirely through files generated on the `config` volume.
 
 | Subcontainer      | Image                             | Role                                                   |
 | ----------------- | --------------------------------- | ------------------------------------------------------ |
@@ -44,12 +44,15 @@ Nine upstream images, all unmodified, all `x86_64` and `aarch64`. There is no cu
 | `consensus-sub`   | `ghcr.io/anyproto/any-sync-consensusnode` | Orders ACL records                              |
 | `mongo-sub`       | `mongo`                           | Coordinator and consensus state                         |
 | `redis-sub`       | `redis/redis-stack-server`        | Filenode blob index                                     |
-| `minio-sub`       | `minio/minio`                     | S3 backend for the filenode                             |
-| `mc-sub`          | `minio/mc`                        | Creates the bucket once, then exits                     |
+| `garage-sub`      | `dxflrs/garage`                   | S3 backend for the filenode                             |
 | `tools-sub`       | `ghcr.io/anyproto/any-sync-tools` | Runs `anyconf` to mint the network identity             |
 | `caddy-sub`       | `caddy`                           | Serves `client.yml` over the config interface           |
+| `minio-migrate-sub` | `pgsty/minio`                   | Update only: serves the MinIO data of an older install  |
+| `rclone-sub`      | `rclone/rclone`                   | Update only: copies that data into Garage               |
 
-Attach with `start-cli package attach anytype-sync -n <subcontainer-name>`.
+Attach with `start-cli package attach anytype-sync -n <subcontainer-name>`. The two update-only subcontainers, and a second Garage named `garage-migrate-sub`, exist only while the copy described under Installation and First-Run Flow is running.
+
+**Garage's image has no shell.** `/garage` is the only binary in it, and an attached command does not inherit the daemon's environment, so pass the config and the RPC secret as flags: `start-cli package attach anytype-sync -n garage-sub -- /garage -c /etc/garage/garage.toml --rpc-secret <secret> bucket info anytype` reports the bucket's object count and size. The secret is the contents of `config/generated/.garageRpcSecret`, readable from `tools-sub` at `/config/generated/.garageRpcSecret`.
 
 **Upstream runs three sync nodes; this package runs one.** That count is not a protocol requirement — `ReplicationFactor` is a compile-time constant of 3, and the consistent-hash ring returns the replication factor *or the total member count, whichever is smaller*. anyproto's own network generator creates a single sync node on its default path; three appear only in its `--auto` mode. On a single-box deployment three nodes would triple the storage and the port count to replicate data onto the same disk.
 
@@ -57,19 +60,21 @@ Attach with `start-cli package attach anytype-sync -n <subcontainer-name>`.
 
 ## Volume and Data Layout
 
-Five volumes. `config` is the one that matters: it holds the network's cryptographic identity.
+Six volumes. `config` is the one that matters: it holds the network's cryptographic identity.
 
 | Volume   | Mounted at                                             | Contents                                                     |
 | -------- | ------------------------------------------------------ | ------------------------------------------------------------ |
 | `config` | `/config` (tools), `/etc/any-sync-*` (each daemon)     | Network identity, per-daemon configs, `client.yml`           |
 | `db`     | `/data/db`                                             | MongoDB                                                      |
 | `cache`  | `/data`                                                | Redis append-only file                                       |
-| `blobs`  | `/data`                                                | MinIO bucket — the actual file attachments                   |
+| `objects` | `/var/lib/garage`                                     | Garage metadata and data — the actual file attachments       |
+| `blobs`  | `/data` (during the update only)                       | MinIO data left by an install that predates Garage; empty otherwise |
 | `sync`   | `/storage`, `/anyStorage`, `/networkStore`             | Document trees and each daemon's cached node config          |
 
 Inside `config`:
 
-- `generated/` — `anyconf` output. `.networkId`, `.networkSigningKey`, `nodes.yml`, `account0.yml` … `account3.yml`, `.minioSecret`. **Minted once at first start and never regenerated.** The peer IDs derived from these keys are what every paired client dials; losing or regenerating them orphans every device.
+- `generated/` — `anyconf` output, `.networkId`, `.networkSigningKey`, `nodes.yml`, `account0.yml` … `account3.yml`, plus Garage's `.garageSecret` and `.garageRpcSecret`. **Minted once at first start and never regenerated.** The peer IDs derived from these keys are what every paired client dials; losing or regenerating them orphans every device. An install that predates Garage also holds `.minioSecret` here until Delete Old MinIO Data is run.
+- `garage/` — `garage.toml`, plus the `passwd` and `group` files mounted into Garage's otherwise empty image. Rewritten on every start.
 - `coordinator/`, `sync-node/`, `filenode/`, `consensusnode/` — per-daemon `config.yml`, rewritten on every start.
 - `aws/credentials` — the filenode's S3 profile.
 - `public/` — `client.yml` and the download page.
@@ -88,7 +93,7 @@ None.
 
 Five interfaces. The four sync interfaces carry the any-sync protocol; the fifth is an ordinary web page.
 
-| Interface  | Type  | Port  | Purpose                                       |
+| Interface  | Type  | Bound port | Purpose                                  |
 | ---------- | ----- | ----- | --------------------------------------------- |
 | `coordinator` | p2p | 33010 | Space registry and node list                  |
 | `sync-node`   | p2p | 33011 | Document sync                                 |
@@ -104,6 +109,8 @@ Upstream's default ports (TCP 1001–1006, UDP 1011–1016) are unusable on Star
 
 **Clients dial every daemon directly.** There is no single front door — the coordinator does not proxy for the others. All four ports must be reachable from any device that is to sync.
 
+**The ports above are the ones the daemons bind, not necessarily the ones clients dial.** StartOS assigns each binding an external port and gives it the bound number only when that is free; where another service already holds it, the binding gets a different one. `client.yml` and the published topology always carry the assigned port, so read the port to forward from `client.yml` or from the interface's addresses in StartOS, never from this table.
+
 ### Address advertisement — the subtle part
 
 The addresses a client dials are *not* the addresses the daemons bind. Daemons bind `0.0.0.0` inside their containers; what clients dial comes from the node config, which the package builds from whatever hostnames StartOS currently offers for each binding.
@@ -118,21 +125,40 @@ No setup action, no credentials to create. On first start the package mints the 
 
 Startup order is enforced with `requires`:
 
-1. `mongo`, `redis`, `minio` come up independently.
+1. `mongo`, `redis`, `garage` come up independently. Garage creates its bucket and access key itself at startup — the filenode never creates its own.
 2. `mongo-replset` initiates the single-member replica set.
-3. `create-bucket` creates the MinIO bucket — the filenode never creates its own.
-4. `publish-topology` runs `any-sync-confapply`, writing the node topology into Mongo.
-5. `coordinator` starts, then `consensusnode`, `sync-node` and `filenode`.
+3. `publish-topology` runs `any-sync-confapply`, writing the node topology into Mongo.
+4. `coordinator` starts, then `consensusnode`, `sync-node` and `filenode`.
 
 `any-sync-confapply` is **not idempotent** — every invocation inserts a new topology document with an incremented epoch. Re-running it is harmless (the sync node skips its drain cycle when the tree-node peer set is unchanged) but it is write amplification, which is why it is ordered as a oneshot rather than run per daemon.
 
+### Updating an install that stored files in MinIO
+
+Earlier releases kept file attachments in MinIO on the `blobs` volume. The update to a Garage release copies them into Garage on `objects` before the service starts, while StartOS shows the phase "Copying files from MinIO to Garage". It applies only when `blobs` holds a non-empty bucket; a fresh install never runs it.
+
+The copy starts Garage and a MinIO server over the old data, runs `rclone copy` between them, then `rclone check --one-way --checksum` and an object count comparison. All of it is in the service logs, ending with a line that gives the object count and bytes on each side. On success it writes `objects/.migrated-from-minio`. The filenode's Redis index on `cache` is not touched; object keys are identical on both sides.
+
+**The update never rewrites or removes the objects MinIO stored** — the MinIO server it starts only updates its own bookkeeping under `blobs/.minio.sys` — so the files take twice the space until Delete Old MinIO Data is run. If the copy or the verification fails, the update fails and StartOS keeps the previous version with its data as it was; the log line `rclone exited with <code>` and rclone's own output above it say why. The copy needs free space for a second copy of every file.
+
 ## Actions
 
-None. The package has nothing for a user to configure: the network identity is generated, the addresses are derived from StartOS, and the one artifact a user needs is served as a file rather than returned by an action — a StartOS action can only return single-line values, and `client.yml` is a multi-line document.
+One, and only on an install that still holds MinIO data. Nothing else needs configuring: the network identity is generated, the addresses are derived from StartOS, and the one artifact a user needs is served as a file rather than returned by an action — a StartOS action can only return single-line values, and `client.yml` is a multi-line document.
+
+### Delete Old MinIO Data (`delete-old-minio-data`)
+
+- **When to run it** — after an update that copied files from MinIO to Garage, once the user has confirmed that images and attachments open in Anytype. It is hidden on any install with no MinIO data.
+- **What it changes** — deletes everything on the `blobs` volume and `config/generated/.minioSecret`. Garage's copy on `objects` is untouched.
+- **Cost** — returns at once and deletes in the background, which takes longer the more files there are. The service keeps running.
+- **Repeat safety** — irreversible, and safe to run again: if a deletion was interrupted, the action is still shown and a second run finishes it.
+- **What happens next** — the action disappears when the deletion is complete. A failure is logged as `Deleting the old MinIO data failed`.
 
 ## Tasks
 
-None.
+One optional task, which never blocks the service.
+
+- **What raises it** — `config/generated/.minioSecret` exists when the package initializes, which means the install still holds MinIO data: after the update that moved it to Garage, after restoring a backup taken before the old data was deleted, and on any later container rebuild until it is deleted.
+- **Severity** — optional.
+- **What clears it** — running Delete Old MinIO Data. It does not return once that deletion has completed.
 
 ## Health Checks
 
@@ -152,9 +178,9 @@ These checks confirm a daemon is listening, not that a client can reach it. A gr
 
 ## Backups and Restore
 
-All five volumes are backed up. StartOS stops the service for the duration, so each one is copied quiescent.
+All six volumes are copied wholesale (`Backups.ofVolumes`). StartOS stops the service for the duration, so each one is copied quiescent. `blobs` is included while it still holds MinIO data, so a backup carries the attachments twice until Delete Old MinIO Data is run.
 
-**`cache` must be included, despite looking like a throwaway.** It holds the filenode's Redis blob index. The index entries are persisted into the S3 index bucket by `PersistKeys`, so it appears rebuildable from `blobs` — it is not. The lookup in `any-sync-filenode/index/loader.go:150-190` checks Redis, then gates the persistent-store fallback on a **bloom filter**: if `BFExists` returns false it returns "item not exists" and never reads the persistent index. That bloom filter is written only by `BFAdd` into Redis and is persisted nowhere (`bloomFilterKey` has three references in the repo — definition, check, write). An empty Redis therefore does not cost a warm cache; it makes every stored blob unreachable while the bytes sit intact in MinIO, so attachments vanish from every restored space.
+**`cache` must be included, despite looking like a throwaway.** It holds the filenode's Redis blob index. The index entries are persisted into the S3 index bucket by `PersistKeys`, so it appears rebuildable from `objects` — it is not. The lookup in `any-sync-filenode/index/loader.go:150-190` checks Redis, then gates the persistent-store fallback on a **bloom filter**: if `BFExists` returns false it returns "item not exists" and never reads the persistent index. That bloom filter is written only by `BFAdd` into Redis and is persisted nowhere (`bloomFilterKey` has three references in the repo — definition, check, write). An empty Redis therefore does not cost a warm cache; it makes every stored blob unreachable while the bytes sit intact in Garage, so attachments vanish from every restored space.
 
 **`config` is the other critical volume.** It carries the network identity, and restoring it is what makes a restored server keep working with clients that were already paired — the peer IDs are unchanged, so no client needs a new `client.yml`. A restore that lost `config` but kept the data volumes would produce a server no existing client would talk to.
 
@@ -176,7 +202,7 @@ Backups use rsync (`Backups.ofVolumes` delegates to `addSync`), not the `cp`-bas
 
 ```yaml
 package_id: anytype-sync
-image: ghcr.io/anyproto/any-sync-coordinator # plus any-sync-node, any-sync-filenode, any-sync-consensusnode, any-sync-tools, mongo, redis/redis-stack-server, minio/minio, minio/mc, caddy
+image: ghcr.io/anyproto/any-sync-coordinator # plus any-sync-node, any-sync-filenode, any-sync-consensusnode, any-sync-tools, mongo, redis/redis-stack-server, dxflrs/garage, caddy, and for the MinIO-to-Garage copy pgsty/minio and rclone/rclone
 architectures: [x86_64, aarch64]
 subcontainers:
   - coordinator-sub
@@ -185,20 +211,27 @@ subcontainers:
   - consensus-sub
   - mongo-sub
   - redis-sub
-  - minio-sub
-  - mc-sub
+  - garage-sub
   - tools-sub
   - caddy-sub
+  - garage-migrate-sub # update only
+  - minio-migrate-sub # update only
+  - rclone-sub # update only
 volumes:
   config: /config
   db: /data/db
   cache: /data
-  blobs: /data
+  objects: /var/lib/garage
+  blobs: /data # update only
   sync: /storage
 file_models: []
 startos_managed_env_vars:
-  - MINIO_ROOT_USER
-  - MINIO_ROOT_PASSWORD
+  - GARAGE_CONFIG_FILE
+  - GARAGE_RPC_SECRET
+  - GARAGE_DEFAULT_ACCESS_KEY
+  - GARAGE_DEFAULT_SECRET_KEY
+  - GARAGE_DEFAULT_BUCKET
+  - RUST_LOG
 dependencies: none
 interfaces:
   coordinator: { type: p2p, port: 33010 }
@@ -206,8 +239,10 @@ interfaces:
   filenode: { type: p2p, port: 33012 }
   consensus: { type: p2p, port: 33013 }
   config: { type: ui, port: 8080 }
-actions: []
-tasks: []
+actions:
+  - delete-old-minio-data
+tasks:
+  - { action: delete-old-minio-data, severity: optional }
 health_checks:
   - coordinator
   - sync-node

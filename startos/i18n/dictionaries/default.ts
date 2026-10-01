@@ -18,6 +18,16 @@ const dict = {
   'Download the network configuration file to load into the Anytype app': 12,
   'The network configuration is ready to download': 13,
   'The network configuration is not ready': 14,
+  // garage.ts
+  'Copying files from MinIO to Garage': 15,
+  // actions/deleteOldMinioData.ts
+  'Delete Old MinIO Data': 16,
+  'Delete the copy of your files that MinIO kept before this service moved its file storage to Garage.': 17,
+  'Check first that your images and files open in Anytype. The old copy cannot be brought back.': 18,
+  'Deleting Old MinIO Data': 19,
+  'The space is freed in the background. This action disappears when it is done.': 20,
+  // init/taskDeleteOldMinioData.ts
+  'Your files were copied from MinIO to Garage during the update. Once they open in Anytype, delete the old copy to free its space.': 21,
 } as const
 
 /**

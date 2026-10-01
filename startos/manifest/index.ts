@@ -7,10 +7,10 @@ import { long, short } from './i18n'
  * https://puppetdoc.anytype.io/api/v1/prod-any-sync-compatible-versions/ —
  * bump these together from that endpoint, never individually. See UPDATING.md.
  */
-export const COORDINATOR_VERSION = 'v0.13.0'
-export const SYNC_NODE_VERSION = 'v0.13.1'
+export const COORDINATOR_VERSION = 'v0.13.1'
+export const SYNC_NODE_VERSION = 'v0.13.3'
 export const FILENODE_VERSION = 'v0.13.0'
-export const CONSENSUSNODE_VERSION = 'v0.13.0'
+export const CONSENSUSNODE_VERSION = 'v0.13.1'
 export const TOOLS_VERSION = 'v0.7.0'
 
 export const manifest = setupManifest({
@@ -31,8 +31,10 @@ export const manifest = setupManifest({
     'db',
     // Redis append-only file. Filenode's blob index.
     'cache',
-    // MinIO. The blobs themselves.
+    // MinIO data from installs that predate Garage. Empty on new installs.
     'blobs',
+    // Garage. The blobs themselves.
+    'objects',
     // The sync node's document storage (/storage, /anyStorage) plus each
     // daemon's networkStore.
     'sync',
@@ -84,16 +86,18 @@ export const manifest = setupManifest({
       source: { dockerTag: 'redis/redis-stack-server:7.2.0-v6' },
       arch: ['x86_64', 'aarch64'],
     },
-    minio: {
-      source: {
-        dockerTag: 'minio/minio:RELEASE.2024-07-04T14-25-45Z',
-      },
+    garage: {
+      source: { dockerTag: 'dxflrs/garage:v2.4.1' },
       arch: ['x86_64', 'aarch64'],
     },
-    // The filenode never creates its own bucket, so one oneshot run of `mc mb`
-    // is required before it can store anything.
-    mc: {
-      source: { dockerTag: 'minio/mc:RELEASE.2025-08-13T08-35-41Z' },
+    // Reads the MinIO data of a pre-Garage install during its update, and
+    // rclone copies it across. Neither runs otherwise.
+    'minio-legacy': {
+      source: { dockerTag: 'pgsty/minio:RELEASE.2026-08-04T00-00-00Z' },
+      arch: ['x86_64', 'aarch64'],
+    },
+    rclone: {
+      source: { dockerTag: 'rclone/rclone:1.71.1' },
       arch: ['x86_64', 'aarch64'],
     },
     // any-sync has no web UI of its own. The one thing a user must get out of

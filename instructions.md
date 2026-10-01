@@ -70,6 +70,15 @@ What does not come across, and cannot:
 
 Take your time over step 4. It is much easier to export one Channel too many now than to switch networks back and forth later.
 
+## Freeing space after the move to Garage
+
+This applies only if you installed this service while it still stored files in MinIO. The update that replaced MinIO with Garage copied your images and attachments across and kept the old copy, so until you remove it they take twice the space.
+
+1. Open a few images and file attachments in Anytype and check that they load.
+2. Run the **Delete Old MinIO Data** action. StartOS also shows it as a task on this service.
+
+The action returns straight away and deletes in the background; it disappears from the list when it has finished. It cannot be undone.
+
 ## Important limitations
 
 - **A self-hosted network is a separate identity, and you must create a _new_ vault on it.** Your existing anytype.io vault belongs to Anytype's network and cannot be recovered onto yours. Entering its login key after switching to Self-hosted does not fail with an error — the app sits on "Welcome back" with a spinner indefinitely, because it is looking for an account that does not exist on your server. Create a new vault instead, and move your content across with the steps below.
