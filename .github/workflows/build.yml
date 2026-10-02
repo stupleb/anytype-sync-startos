@@ -2,27 +2,21 @@ name: Build
 
 on:
   workflow_dispatch:
-  push:
-    paths-ignore: ['*.md']
-    branches: ['master']
   pull_request:
-    paths-ignore: ['*.md']
+    types: [opened, synchronize, reopened, ready_for_review]
     branches: ['master']
+    paths-ignore: ['*.md']
+
+permissions: {}
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  group: package-build-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
   build:
-    if: github.event.pull_request.draft == false
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    permissions:
+      contents: read
     uses: Start9Labs/start-technologies/.github/workflows/build.yml@master
-    with:
-      # Ten upstream images per arch, and the packed s9pk runs to hundreds of
-      # megabytes — a stock runner gets tight once the images are unpacked.
-      FREE_DISK_SPACE: true
-    secrets:
-      # Optional for a build — without it the reusable workflow falls back to
-      # `start-cli init-key` and signs with a throwaway identity. Passing the
-      # real key keeps CI artifacts signed the same as local builds.
-      DEV_KEY: ${{ secrets.DEV_KEY }}
+    # No DEV_KEY — a PR build doesn't publish, so it doesn't need the signing key.
