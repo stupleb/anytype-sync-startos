@@ -1,5 +1,7 @@
 # Updating the upstream version
 
+Every image is upstream's published image, pinned by tag in `startos/manifest/index.ts`; nothing is built from source. The four any-sync daemons and `any-sync-tools` come from `ghcr.io/anyproto`. MongoDB (`mongo`), Redis (`redis/redis-stack-server`), Garage (`dxflrs/garage`), Caddy (`caddy`), `pgsty/minio` and `rclone/rclone` come from Docker Hub.
+
 The four any-sync daemons release as a coordinated set and **must be bumped together**. They are not independently versioned in practice — `any-sync-node` frequently sits a patch ahead of the other three, and mixing versions from different sets is unsupported.
 
 anyproto publish the compatible combination as a machine-readable endpoint, which is the authority for this package. Do not derive the set from individual repository tags.
@@ -39,6 +41,20 @@ A set can skip a daemon's newest tag — take the version the endpoint names, no
 
 `any-sync-tools` is versioned independently of the daemon set — it only supplies `anyconf` at install time, so take its latest tag.
 
+For the Docker Hub images, list the newest tags with the Hub API; official images such as `mongo` and `caddy` live under `library/`:
+
+```
+curl -fsSL "https://hub.docker.com/v2/repositories/dxflrs/garage/tags?page_size=20&ordering=last_updated" | jq -r '.results[].name'
+```
+
+The MongoDB, Redis and Garage versions upstream's own compose stack runs are in `.env.example` in `anyproto/any-sync-dockercompose`.
+
+**A tag does not mean both architectures exist.** Before pinning any image, confirm it lists `linux/amd64` and `linux/arm64`:
+
+```
+docker buildx imagetools inspect ghcr.io/anyproto/any-sync-node:<tag>
+```
+
 ## Applying the bump
 
 Update the version constants at the top of `startos/manifest/index.ts` — they are the only place the tags are written:
@@ -51,13 +67,18 @@ Update the version constants at the top of `startos/manifest/index.ts` — they 
 
 Then bump `version` and `releaseNotes` in `startos/versions/current.ts` per the standard packaging conventions. The package version tracks the sync-node version, since it is the one that moves most often.
 
+Before bumping the daemons, read what changed in `docker-generateconfig/etc/` of `anyproto/any-sync-dockercompose` since the last bump (`git log -p -- docker-generateconfig/etc`). Those are upstream's config templates, and `startos/main.ts` writes each daemon's `config.yml` in full from the same keys, so a key upstream adds, renames or removes has to follow in `main.ts`.
+
 ## The other pins
 
-MongoDB, Redis, Garage and Caddy are pinned separately in the same file and are not tied to the any-sync release cadence. Three constraints on them:
+MongoDB, Redis, Garage and Caddy are pinned separately in the same file and are not tied to the any-sync release cadence. Constraints on them:
 
 - **MongoDB must stay on a release with an `arm64` image**, and users on ARM need ARMv8.2-A or newer regardless — see `README.md` § Limitations and Differences. Do not move to a major version without checking the platform list.
+- **MongoDB moves one major at a time.** A MongoDB major refuses data whose feature compatibility version is more than one major behind, so after each major bump the version has to be raised (`setFeatureCompatibilityVersion`) in a migration before the next major can run.
 - **Redis must remain `redis-stack-server` or another build carrying the RedisBloom module.** The filenode probes `BF.ADD` at startup and refuses to run without it, so a swap to plain Redis or Valkey breaks file sync at boot.
 - **Garage must keep `--single-node`, `--default-bucket` and `--default-access-key`**, which arrived in 2.3.0 and are how the bucket and key come to exist. Read Garage's upgrade notes before a major bump: a new major can need its metadata migrated, and then the bump needs a migration in `startos/versions/`.
+
+`caddy:2-alpine` is a floating tag: each build takes the Caddy 2 release current at the time, so there is nothing to bump.
 
 `pgsty/minio` and `rclone` are not part of the running service and take no bumps. They exist for the one-off copy out of MinIO, and the MinIO build has to keep reading the data directory an older install wrote.
 

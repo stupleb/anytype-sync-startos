@@ -34,7 +34,7 @@ There is no application UI here. The package's only web interface exists to hand
 
 ## Image and Container Runtime
 
-Eleven upstream images, all unmodified, all `x86_64` and `aarch64`. There is no custom Dockerfile — the four any-sync daemons run their image's default entrypoint, and configuration is supplied entirely through files generated on the `config` volume.
+Eleven upstream images, all unmodified, all `x86_64` and `aarch64`. There is no custom Dockerfile. The four any-sync daemons run their image's default entrypoint and read configuration files the package generates on the `config` volume; MongoDB and Redis are configured by command-line flags, and Garage by a generated `garage.toml` plus environment variables.
 
 | Subcontainer      | Image                             | Role                                                   |
 | ----------------- | --------------------------------- | ------------------------------------------------------ |
@@ -64,7 +64,7 @@ Six volumes. `config` is the one that matters: it holds the network's cryptograp
 
 | Volume   | Mounted at                                             | Contents                                                     |
 | -------- | ------------------------------------------------------ | ------------------------------------------------------------ |
-| `config` | `/config` (tools), `/etc/any-sync-*` (each daemon)     | Network identity, per-daemon configs, `client.yml`           |
+| `config` | `/config` (tools), `/etc/any-sync-*` (each daemon), `/root/.aws` (filenode), `/etc/garage` (Garage), `/srv` (Caddy) | Network identity, per-daemon configs, `client.yml`           |
 | `db`     | `/data/db`                                             | MongoDB                                                      |
 | `cache`  | `/data`                                                | Redis append-only file                                       |
 | `objects` | `/var/lib/garage`                                     | Garage metadata and data — the actual file attachments       |
@@ -111,6 +111,8 @@ Upstream's default ports (TCP 1001–1006, UDP 1011–1016) are unusable on Star
 
 **The ports above are the ones the daemons bind, not necessarily the ones clients dial.** StartOS assigns each binding an external port and gives it the bound number only when that is free; where another service already holds it, the binding gets a different one. `client.yml` and the published topology always carry the assigned port, so read the port to forward from `client.yml` or from the interface's addresses in StartOS, never from this table.
 
+**The four sync interfaces share one host.** A domain added with **Add Domain** on any of them applies to all four, and a domain or a LAN address is on by default on each. A public IP address is off until it is turned on, interface by interface, so reaching the server through forwarded ports needs it on for all four. An address that is on for only some of the four makes clients that use it fail against the others; `main` logs a warning naming the daemon whose interface lacks it.
+
 ### Address advertisement — the subtle part
 
 The addresses a client dials are *not* the addresses the daemons bind. Daemons bind `0.0.0.0` inside their containers; what clients dial comes from the node config, which the package builds from whatever hostnames StartOS currently offers for each binding.
@@ -142,7 +144,7 @@ The copy starts Garage and a MinIO server over the old data, runs `rclone copy` 
 
 ## Actions
 
-One, and only on an install that still holds MinIO data. Nothing else needs configuring: the network identity is generated, the addresses are derived from StartOS, and the one artifact a user needs is served as a file rather than returned by an action — a StartOS action can only return single-line values, and `client.yml` is a multi-line document.
+One, and only on an install that still holds MinIO data. Nothing else needs configuring: the network identity is generated, the addresses are derived from StartOS, and the one artifact a user needs is served as a file rather than returned by an action — an action's result shows each value on a single line, and `client.yml` is a multi-line document.
 
 ### Delete Old MinIO Data (`delete-old-minio-data`)
 
@@ -170,7 +172,7 @@ One per user-visible daemon; the datastores report internally with no display na
 | `sync-node`            | Accepting connections on its port                                     |
 | `filenode`             | Accepting connections on its port                                     |
 | `consensusnode`        | Accepting connections on its port                                     |
-| `config-ui`            | The download page is being served                                     |
+| `config-ui`            | Its web server is accepting connections on its port                   |
 
 The Redis check issues `BF.ADD`, not `PING`. The filenode probes the RedisBloom module at startup and aborts without it, so a plain `PING` would report a healthy Redis that cannot actually serve this package.
 
@@ -180,7 +182,7 @@ These checks confirm a daemon is listening, not that a client can reach it. A gr
 
 All six volumes are copied wholesale (`Backups.ofVolumes`). StartOS stops the service for the duration, so each one is copied quiescent. `blobs` is included while it still holds MinIO data, so a backup carries the attachments twice until Delete Old MinIO Data is run.
 
-**`cache` must be included, despite looking like a throwaway.** It holds the filenode's Redis blob index. The index entries are persisted into the S3 index bucket by `PersistKeys`, so it appears rebuildable from `objects` — it is not. The lookup in `any-sync-filenode/index/loader.go:150-190` checks Redis, then gates the persistent-store fallback on a **bloom filter**: if `BFExists` returns false it returns "item not exists" and never reads the persistent index. That bloom filter is written only by `BFAdd` into Redis and is persisted nowhere (`bloomFilterKey` has three references in the repo — definition, check, write). An empty Redis therefore does not cost a warm cache; it makes every stored blob unreachable while the bytes sit intact in Garage, so attachments vanish from every restored space.
+**`cache` must be included, despite looking like a throwaway.** It holds the filenode's Redis blob index. The index entries are persisted into the S3 index bucket by `PersistKeys`, so it appears rebuildable from `objects` — it is not. The lookup in any-sync-filenode's `index/loader.go` checks Redis, then gates the persistent-store fallback on a **bloom filter**: if `BFExists` returns false it returns "item not exists" and never reads the persistent index. That bloom filter is written only by `BFAdd` into Redis and is persisted nowhere (`bloomFilterKey` has three references in the repo — definition, check, write). An empty Redis therefore does not cost a warm cache; it makes every stored blob unreachable while the bytes sit intact in Garage, so attachments vanish from every restored space.
 
 **`config` is the other critical volume.** It carries the network identity, and restoring it is what makes a restored server keep working with clients that were already paired — the peer IDs are unchanged, so no client needs a new `client.yml`. A restore that lost `config` but kept the data volumes would produce a server no existing client would talk to.
 
@@ -188,7 +190,7 @@ Backups use rsync (`Backups.ofVolumes` delegates to `addSync`), not the `cp`-bas
 
 ## Limitations and Differences
 
-1. **Raspberry Pi 4 and earlier will not run this.** MongoDB 5.0 and later require ARMv8.2-A; the Pi 4's Cortex-A72 is ARMv8.0-A and the binaries die with `Illegal instruction`. x86_64 and Pi 5 (Cortex-A76) are fine. There is no riscv64 build, because there is no riscv64 MongoDB image.
+1. **Raspberry Pi 4 and earlier will not run this.** The MongoDB this package runs requires ARMv8.2-A; the Pi 4's Cortex-A72 is ARMv8.0-A and the binaries die with `Illegal instruction`. x86_64 and Pi 5 (Cortex-A76) are fine. There is no riscv64 build, because there is no riscv64 MongoDB image.
 2. **No Tor.** Neither any-sync nor the Anytype client has any SOCKS or proxy support — the client's outbound dial is a bare Go `net.Dialer`, which ignores proxy environment variables. Publishing an onion address would produce something no client can dial. Reachability is LAN, VPN, or a forwarded port.
 3. **One sync node, fixed at install.** See Image and Container Runtime.
 4. **Redis cannot be swapped for Valkey.** The filenode requires the RedisBloom module.
@@ -232,6 +234,12 @@ startos_managed_env_vars:
   - GARAGE_DEFAULT_SECRET_KEY
   - GARAGE_DEFAULT_BUCKET
   - RUST_LOG
+  - LC_ALL
+  - LANG
+  - MINIO_ROOT_USER # update only
+  - MINIO_ROOT_PASSWORD # update only
+  - RCLONE_CONFIG_SRC_* # update only
+  - RCLONE_CONFIG_DST_* # update only
 dependencies: none
 interfaces:
   coordinator: { type: p2p, port: 33010 }
