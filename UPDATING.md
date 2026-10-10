@@ -17,10 +17,10 @@ That returns the current set, keyed by package name:
 
 ```json
 {
-  "pkg::any-sync-node": "0.13.3",
-  "pkg::any-sync-coordinator": "0.13.1",
-  "pkg::any-sync-filenode": "0.13.0",
-  "pkg::any-sync-consensusnode": "0.13.1"
+  "pkg::any-sync-node": "0.13.4",
+  "pkg::any-sync-coordinator": "0.13.2",
+  "pkg::any-sync-filenode": "0.13.2",
+  "pkg::any-sync-consensusnode": "0.13.2"
 }
 ```
 

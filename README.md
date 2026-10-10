@@ -186,7 +186,7 @@ All six volumes are copied wholesale (`Backups.ofVolumes`). StartOS stops the se
 
 **`config` is the other critical volume.** It carries the network identity, and restoring it is what makes a restored server keep working with clients that were already paired — the peer IDs are unchanged, so no client needs a new `client.yml`. A restore that lost `config` but kept the data volumes would produce a server no existing client would talk to.
 
-Backups use rsync (`Backups.ofVolumes` delegates to `addSync`), not the `cp`-based dump helpers, so the 30-second copy timeout that affects `withPgDump`/`withMysqlDump` packages does not apply here. rsync's `--timeout=300` is an inactivity timeout, not a cap on total duration.
+Backups use rsync (`Backups.ofVolumes` delegates to `addSync`). rsync's `--timeout=300` is an inactivity timeout, not a cap on total duration.
 
 ## Limitations and Differences
 
