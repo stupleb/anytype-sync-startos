@@ -7,10 +7,10 @@ import { long, short } from './i18n'
  * https://puppetdoc.anytype.io/api/v1/prod-any-sync-compatible-versions/ —
  * bump these together from that endpoint, never individually. See UPDATING.md.
  */
-export const COORDINATOR_VERSION = 'v0.13.1'
-export const SYNC_NODE_VERSION = 'v0.13.3'
-export const FILENODE_VERSION = 'v0.13.0'
-export const CONSENSUSNODE_VERSION = 'v0.13.1'
+export const COORDINATOR_VERSION = 'v0.13.2'
+export const SYNC_NODE_VERSION = 'v0.13.4'
+export const FILENODE_VERSION = 'v0.13.2'
+export const CONSENSUSNODE_VERSION = 'v0.13.2'
 export const TOOLS_VERSION = 'v0.7.0'
 
 export const manifest = setupManifest({
@@ -109,5 +109,4 @@ export const manifest = setupManifest({
       arch: ['x86_64', 'aarch64'],
     },
   },
-  dependencies: {},
 })
