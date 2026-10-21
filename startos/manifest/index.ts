@@ -10,7 +10,7 @@ import { long, short } from './i18n'
 export const COORDINATOR_VERSION = 'v0.13.2'
 export const SYNC_NODE_VERSION = 'v0.13.4'
 export const FILENODE_VERSION = 'v0.13.2'
-export const CONSENSUSNODE_VERSION = 'v0.13.2'
+export const CONSENSUSNODE_VERSION = 'v0.13.3'
 export const TOOLS_VERSION = 'v0.7.0'
 
 export const manifest = setupManifest({
@@ -87,7 +87,7 @@ export const manifest = setupManifest({
       arch: ['x86_64', 'aarch64'],
     },
     garage: {
-      source: { dockerTag: 'dxflrs/garage:v2.4.1' },
+      source: { dockerBuild: { workdir: './garage' } },
       arch: ['x86_64', 'aarch64'],
     },
     // Reads the MinIO data of a pre-Garage install during its update, and

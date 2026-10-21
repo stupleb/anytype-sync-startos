@@ -1,6 +1,6 @@
 # Updating the upstream version
 
-Every image is upstream's published image, pinned by tag in `startos/manifest/index.ts`; nothing is built from source. The four any-sync daemons and `any-sync-tools` come from `ghcr.io/anyproto`. MongoDB (`mongo`), Redis (`redis/redis-stack-server`), Garage (`dxflrs/garage`), Caddy (`caddy`), `pgsty/minio` and `rclone/rclone` come from Docker Hub.
+Every image is upstream's published image, pinned by tag in `startos/manifest/index.ts`, except Garage, pinned in `garage/Dockerfile`, which adds only the empty `/proc` and `/etc` its image lacks; nothing is built from source. The four any-sync daemons and `any-sync-tools` come from `ghcr.io/anyproto`. MongoDB (`mongo`), Redis (`redis/redis-stack-server`), Garage (`dxflrs/garage`), Caddy (`caddy`), `pgsty/minio` and `rclone/rclone` come from Docker Hub.
 
 The four any-sync daemons release as a coordinated set and **must be bumped together**. They are not independently versioned in practice — `any-sync-node` frequently sits a patch ahead of the other three, and mixing versions from different sets is unsupported.
 
@@ -20,7 +20,7 @@ That returns the current set, keyed by package name:
   "pkg::any-sync-node": "0.13.4",
   "pkg::any-sync-coordinator": "0.13.2",
   "pkg::any-sync-filenode": "0.13.2",
-  "pkg::any-sync-consensusnode": "0.13.2"
+  "pkg::any-sync-consensusnode": "0.13.3"
 }
 ```
 
@@ -71,7 +71,7 @@ Before bumping the daemons, read what changed in `docker-generateconfig/etc/` of
 
 ## The other pins
 
-MongoDB, Redis, Garage and Caddy are pinned separately in the same file and are not tied to the any-sync release cadence. Constraints on them:
+MongoDB, Redis and Caddy are pinned separately in the same file, and Garage in `garage/Dockerfile`. None of them is tied to the any-sync release cadence. Constraints on them:
 
 - **MongoDB must stay on a release with an `arm64` image**, and users on ARM need ARMv8.2-A or newer regardless — see `README.md` § Limitations and Differences. Do not move to a major version without checking the platform list.
 - **MongoDB moves one major at a time.** A MongoDB major refuses data whose feature compatibility version is more than one major behind, so after each major bump the version has to be raised (`setFeatureCompatibilityVersion`) in a migration before the next major can run.

@@ -34,7 +34,7 @@ There is no application UI here. The package's only web interface exists to hand
 
 ## Image and Container Runtime
 
-Eleven upstream images, all unmodified, all `x86_64` and `aarch64`. There is no custom Dockerfile. The four any-sync daemons run their image's default entrypoint and read configuration files the package generates on the `config` volume; MongoDB and Redis are configured by command-line flags, and Garage by a generated `garage.toml` plus environment variables.
+Eleven upstream images, all `x86_64` and `aarch64`. All are unmodified except Garage, whose `garage/Dockerfile` adds the empty `/proc` and `/etc` directories its `FROM scratch` image lacks. The four any-sync daemons run their image's default entrypoint and read configuration files the package generates on the `config` volume; MongoDB and Redis are configured by command-line flags, and Garage by a generated `garage.toml` plus environment variables.
 
 | Subcontainer      | Image                             | Role                                                   |
 | ----------------- | --------------------------------- | ------------------------------------------------------ |
