@@ -87,7 +87,7 @@ export const manifest = setupManifest({
       arch: ['x86_64', 'aarch64'],
     },
     garage: {
-      source: { dockerBuild: { workdir: './garage' } },
+      source: { dockerTag: 'dxflrs/garage:v2.4.1' },
       arch: ['x86_64', 'aarch64'],
     },
     // Reads the MinIO data of a pre-Garage install during its update, and
