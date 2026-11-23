@@ -526,7 +526,7 @@ export const main = sdk.setupMain(async ({ effects }) => {
             ])
             return res.stdout.toString().trim() === '1'
               ? { result: 'success', message: null }
-              : { result: 'failure', message: null }
+              : { result: 'failure', message: res.stderr.toString().trim() }
           },
         },
         requires: [],
